@@ -1,0 +1,80 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../providers/app_providers.dart';
+import '../../widgets/app_helpers.dart';
+import '../../widgets/listing_card.dart';
+class WishlistScreen extends ConsumerWidget {
+  const WishlistScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final wishlist = ref.watch(wishlistProvider);
+    final listings = ref.watch(listingsProvider);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Wishlist',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Items you want to keep an eye on.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 22),
+
+            Expanded(
+              child: listings.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
+                error: (_, __) =>
+                    const Center(child: Text('Unable to load wishlist.')),
+                data: (docs) {
+                  final saved = docs
+                      .where((doc) => wishlist.contains(doc.id))
+                      .toList();
+
+                  if (saved.isEmpty) {
+                    return emptyState(
+                      context,
+                      Icons.favorite_border_rounded,
+                      'Your wishlist is empty',
+                      'Tap the heart on an item to save it.',
+                    );
+                  }
+
+                  return GridView.builder(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 320,
+                      mainAxisExtent: 345,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 16,
+                    ),
+                    itemCount: saved.length,
+                    itemBuilder: (_, index) {
+                      return ListingCard(doc: saved[index]);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+
+
