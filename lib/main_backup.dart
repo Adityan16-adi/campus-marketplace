@@ -1,0 +1,2437 @@
+import 'dart:typed_data';
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
+import 'package:image_picker/image_picker.dart';
+
+import 'firebase_options.dart';
+
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  runApp(
+    const ProviderScope(
+      child: CampusMarketplaceApp(),
+    ),
+  );
+}
+
+/* ============================================================
+   PROVIDERS
+   ============================================================ */
+
+final authProvider = StreamProvider<User?>(
+  (ref) => FirebaseAuth.instance.authStateChanges(),
+);
+
+final listingsProvider =
+    StreamProvider<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+  (ref) {
+    return FirebaseFirestore.instance
+        .collection('listings')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map((snapshot) => snapshot.docs);
+  },
+);
+
+final searchProvider = StateProvider<String>((ref) => '');
+
+final categoryProvider = StateProvider<String>((ref) => 'All');
+
+final wishlistProvider = StateProvider<Set<String>>((ref) => {});
+
+final themeProvider =
+    StateProvider<ThemeMode>((ref) => ThemeMode.system);
+
+/* ============================================================
+   APP
+   ============================================================ */
+
+class CampusMarketplaceApp extends ConsumerWidget {
+  const CampusMarketplaceApp({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeProvider);
+
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      title: 'Campus Market',
+      themeMode: themeMode,
+
+      theme: _lightTheme(),
+      darkTheme: _darkTheme(),
+
+      home: const AuthGate(),
+    );
+  }
+
+  ThemeData _lightTheme() {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF5B5FEF),
+      brightness: Brightness.light,
+    );
+
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: const Color(0xFFF7F7FB),
+      fontFamily: 'Arial',
+
+      appBarTheme: const AppBarTheme(
+        elevation: 0,
+        centerTitle: false,
+        backgroundColor: Colors.transparent,
+      ),
+
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+      ),
+
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: scheme.primary,
+            width: 1.5,
+          ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 17,
+        ),
+      ),
+
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: Colors.white,
+        indicatorColor: scheme.primary.withOpacity(.12),
+        labelTextStyle: WidgetStateProperty.all(
+          const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+
+  ThemeData _darkTheme() {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFF777AFF),
+      brightness: Brightness.dark,
+    );
+
+    return ThemeData(
+      useMaterial3: true,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: const Color(0xFF101114),
+      fontFamily: 'Arial',
+
+      appBarTheme: const AppBarTheme(
+        elevation: 0,
+        centerTitle: false,
+        backgroundColor: Colors.transparent,
+      ),
+
+      cardTheme: CardThemeData(
+        elevation: 0,
+        color: const Color(0xFF191B20),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+        ),
+      ),
+
+      inputDecorationTheme: InputDecorationTheme(
+        filled: true,
+        fillColor: const Color(0xFF1A1C21),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide.none,
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(16),
+          borderSide: BorderSide(
+            color: scheme.primary,
+            width: 1.5,
+          ),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 17,
+        ),
+      ),
+
+      navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: const Color(0xFF15161A),
+        indicatorColor: scheme.primary.withOpacity(.18),
+        labelTextStyle: WidgetStateProperty.all(
+          const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   AUTH GATE
+   ============================================================ */
+
+class AuthGate extends ConsumerWidget {
+  const AuthGate({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authProvider);
+
+    return auth.when(
+      loading: () => const SplashScreen(),
+      error: (_, __) => const LoginScreen(),
+      data: (user) {
+        if (user == null) {
+          return const LoginScreen();
+        }
+
+        return const MainShell();
+      },
+    );
+  }
+}
+
+/* ============================================================
+   SPLASH
+   ============================================================ */
+
+class SplashScreen extends StatelessWidget {
+  const SplashScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _logo(size: 72),
+            const SizedBox(height: 20),
+            Text(
+              'Campus Market',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Buy. Sell. Connect on campus.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 28),
+            const CircularProgressIndicator(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   LOGIN
+   ============================================================ */
+
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+
+  bool loading = false;
+  bool obscure = true;
+
+  @override
+  void dispose() {
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> login() async {
+    if (emailController.text.trim().isEmpty ||
+        passwordController.text.isEmpty) {
+      _message('Please enter your email and password.');
+      return;
+    }
+
+    setState(() => loading = true);
+
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: passwordController.text,
+      );
+    } on FirebaseAuthException catch (e) {
+      _message(e.message ?? 'Login failed.');
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+      }
+    }
+  }
+
+  void _message(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return Scaffold(
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 430),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(child: _logo(size: 78)),
+                const SizedBox(height: 24),
+
+                Text(
+                  'Welcome back 👋',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  'Your campus marketplace, all in one place.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontSize: 15,
+                  ),
+                ),
+
+                const SizedBox(height: 32),
+
+                AppTextField(
+                  controller: emailController,
+                  label: 'Email',
+                  hint: 'you@example.com',
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                ),
+
+                const SizedBox(height: 16),
+
+                AppTextField(
+                  controller: passwordController,
+                  label: 'Password',
+                  hint: 'Enter your password',
+                  icon: Icons.lock_outline,
+                  obscureText: obscure,
+                  suffix: IconButton(
+                    onPressed: () {
+                      setState(() => obscure = !obscure);
+                    },
+                    icon: Icon(
+                      obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: FilledButton(
+                    onPressed: loading ? null : login,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: primary,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: loading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Login',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                Row(
+                  children: [
+                    Expanded(child: Divider(color: Colors.grey.shade400)),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('OR'),
+                    ),
+                    Expanded(child: Divider(color: Colors.grey)),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _googleLogin(),
+                    icon: const Icon(Icons.g_mobiledata, size: 28),
+                    label: const Text(
+                      'Continue with Google',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                Center(
+                  child: TextButton(
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const SignupScreen(),
+                        ),
+                      );
+                    },
+                    child: const Text(
+                      "Don't have an account? Create one",
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _googleLogin() async {
+    try {
+      final provider = GoogleAuthProvider();
+
+      await FirebaseAuth.instance.signInWithPopup(provider);
+    } catch (e) {
+      _message('Google sign-in is unavailable right now.');
+    }
+  }
+}
+
+/* ============================================================
+   SIGN UP
+   ============================================================ */
+
+class SignupScreen extends StatefulWidget {
+  const SignupScreen({super.key});
+
+  @override
+  State<SignupScreen> createState() => _SignupScreenState();
+}
+
+class _SignupScreenState extends State<SignupScreen> {
+  final nameController = TextEditingController();
+  final emailController = TextEditingController();
+  final passwordController = TextEditingController();
+
+  bool loading = false;
+  bool obscure = true;
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    emailController.dispose();
+    passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> signup() async {
+    if (nameController.text.trim().isEmpty ||
+        emailController.text.trim().isEmpty ||
+        passwordController.text.length < 6) {
+      _message('Please fill all fields. Password must be 6+ characters.');
+      return;
+    }
+
+    setState(() => loading = true);
+
+    try {
+      final credential =
+          await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: emailController.text.trim(),
+        password: passwordController.text,
+      );
+
+      await credential.user?.updateDisplayName(
+        nameController.text.trim(),
+      );
+
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(credential.user!.uid)
+          .set({
+        'name': nameController.text.trim(),
+        'email': emailController.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        Navigator.pop(context);
+      }
+    } on FirebaseAuthException catch (e) {
+      _message(e.message ?? 'Account creation failed.');
+    } catch (e) {
+      _message('Something went wrong. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+      }
+    }
+  }
+
+  void _message(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Create Account'),
+      ),
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(28),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 430),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(child: _logo(size: 70)),
+                const SizedBox(height: 24),
+
+                Text(
+                  'Join Campus Market',
+                  style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+
+                const SizedBox(height: 8),
+
+                Text(
+                  'Create your account and start trading on campus.',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+
+                const SizedBox(height: 30),
+
+                AppTextField(
+                  controller: nameController,
+                  label: 'Full Name',
+                  hint: 'Your name',
+                  icon: Icons.person_outline,
+                ),
+
+                const SizedBox(height: 16),
+
+                AppTextField(
+                  controller: emailController,
+                  label: 'Email',
+                  hint: 'you@example.com',
+                  icon: Icons.email_outlined,
+                  keyboardType: TextInputType.emailAddress,
+                ),
+
+                const SizedBox(height: 16),
+
+                AppTextField(
+                  controller: passwordController,
+                  label: 'Password',
+                  hint: 'At least 6 characters',
+                  icon: Icons.lock_outline,
+                  obscureText: obscure,
+                  suffix: IconButton(
+                    onPressed: () {
+                      setState(() => obscure = !obscure);
+                    },
+                    icon: Icon(
+                      obscure
+                          ? Icons.visibility_outlined
+                          : Icons.visibility_off_outlined,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 26),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 54,
+                  child: FilledButton(
+                    onPressed: loading ? null : signup,
+                    style: FilledButton.styleFrom(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: loading
+                        ? const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Create Account',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+ 
+  }
+
+
+/* ============================================================
+   MAIN SHELL
+   ============================================================ */
+
+class MainShell extends ConsumerStatefulWidget {
+  const MainShell({super.key});
+
+  @override
+  ConsumerState<MainShell> createState() => _MainShellState();
+}
+
+class _MainShellState extends ConsumerState<MainShell> {
+  int index = 0;
+
+  @override
+  Widget build(BuildContext context) {
+    final pages = [
+      const HomeScreen(),
+      const SearchScreen(),
+      const CreateListingScreen(),
+      const WishlistScreen(),
+      const ProfileScreen(),
+    ];
+
+    return Scaffold(
+      body: IndexedStack(
+        index: index,
+        children: pages,
+      ),
+
+      floatingActionButton: index == 0
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                setState(() => index = 2);
+              },
+              icon: const Icon(Icons.add),
+              label: const Text(
+                'Sell Item',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            )
+          : null,
+
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: index,
+        onDestinationSelected: (value) {
+          setState(() => index = value);
+        },
+        destinations: const [
+          NavigationDestination(
+            icon: Icon(Icons.home_outlined),
+            selectedIcon: Icon(Icons.home),
+            label: 'Home',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.search),
+            label: 'Search',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.add_circle_outline),
+            selectedIcon: Icon(Icons.add_circle),
+            label: 'Sell',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.favorite_border),
+            selectedIcon: Icon(Icons.favorite),
+            label: 'Wishlist',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person),
+            label: 'Profile',
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   HOME
+   ============================================================ */
+
+class HomeScreen extends ConsumerWidget {
+  const HomeScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final listings = ref.watch(listingsProvider);
+    final search = ref.watch(searchProvider).toLowerCase();
+    final category = ref.watch(categoryProvider);
+
+    return SafeArea(
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: _homeHeader(context),
+            ),
+          ),
+
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: _searchBox(context, ref),
+            ),
+          ),
+
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Categories',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: _categoryChips(context, ref),
+            ),
+          ),
+
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 28, 20, 12),
+            sliver: SliverToBoxAdapter(
+              child: Text(
+                'Fresh on Campus',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ),
+          ),
+
+          listings.when(
+            loading: () => const SliverFillRemaining(
+              child: Center(
+                child: CircularProgressIndicator(),
+              ),
+            ),
+
+            error: (error, _) => SliverFillRemaining(
+              child: _emptyState(
+                context,
+                Icons.cloud_off_outlined,
+                'Could not load listings',
+                'Check your Firebase connection.',
+              ),
+            ),
+
+            data: (docs) {
+              final filtered = docs.where((doc) {
+                final data = doc.data();
+
+                final title =
+                    (data['title'] ?? '').toString().toLowerCase();
+
+                final description =
+                    (data['description'] ?? '').toString().toLowerCase();
+
+                final itemCategory =
+                    (data['category'] ?? 'Other').toString();
+
+                final matchesSearch = search.isEmpty ||
+                    title.contains(search) ||
+                    description.contains(search);
+
+                final matchesCategory =
+                    category == 'All' || itemCategory == category;
+
+                return matchesSearch && matchesCategory;
+              }).toList();
+
+              if (filtered.isEmpty) {
+                return SliverFillRemaining(
+                  child: _emptyState(
+                    context,
+                    Icons.search_off_rounded,
+                    'No listings found',
+                    'Try another search or category.',
+                  ),
+                );
+              }
+
+              return SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                sliver: SliverGrid(
+                  delegate: SliverChildBuilderDelegate(
+                    (context, index) {
+                      return ListingCard(
+                        doc: filtered[index],
+                      );
+                    },
+                    childCount: filtered.length,
+                  ),
+                  gridDelegate:
+                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 320,
+                    mainAxisExtent: 345,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                  ),
+                ),
+              );
+            },
+          ),
+
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 100),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _homeHeader(BuildContext context) {
+    final user = FirebaseAuth.instance.currentUser;
+
+    final name = user?.displayName?.split(' ').first ?? 'there';
+
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Good day, $name 👋',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color:
+                          Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 5),
+              Text(
+                'Find something useful.',
+                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
+              ),
+            ],
+          ),
+        ),
+
+        CircleAvatar(
+          radius: 25,
+          backgroundColor:
+              Theme.of(context).colorScheme.primaryContainer,
+          child: Text(
+            name.isNotEmpty ? name[0].toUpperCase() : 'U',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.primary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _searchBox(BuildContext context, WidgetRef ref) {
+    final controller = TextEditingController(
+      text: ref.read(searchProvider),
+    );
+
+    return TextField(
+      controller: controller,
+      onChanged: (value) {
+        ref.read(searchProvider.notifier).state = value;
+      },
+      decoration: InputDecoration(
+        hintText: 'Search books, electronics, furniture...',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: IconButton(
+          onPressed: () {
+            controller.clear();
+            ref.read(searchProvider.notifier).state = '';
+          },
+          icon: const Icon(Icons.close_rounded),
+        ),
+      ),
+    );
+  }
+
+  Widget _categoryChips(BuildContext context, WidgetRef ref) {
+    const categories = [
+      'All',
+      'Books',
+      'Electronics',
+      'Furniture',
+      'Notes',
+      'Other',
+    ];
+
+    return SizedBox(
+      height: 44,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: categories.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (context, index) {
+          final item = categories[index];
+          final selected = ref.watch(categoryProvider) == item;
+
+          return ChoiceChip(
+            label: Text(item),
+            selected: selected,
+            onSelected: (_) {
+              ref.read(categoryProvider.notifier).state = item;
+            },
+            padding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 8,
+            ),
+            labelStyle: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: selected
+                  ? Theme.of(context).colorScheme.primary
+                  : null,
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   SEARCH
+   ============================================================ */
+
+class SearchScreen extends ConsumerWidget {
+  const SearchScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final listings = ref.watch(listingsProvider);
+    final search = ref.watch(searchProvider).toLowerCase();
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Search',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Find exactly what you need.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 22),
+
+            TextField(
+              onChanged: (value) {
+                ref.read(searchProvider.notifier).state = value;
+              },
+              decoration: const InputDecoration(
+                hintText: 'Search listings...',
+                prefixIcon: Icon(Icons.search),
+              ),
+            ),
+
+            const SizedBox(height: 20),
+
+            Expanded(
+              child: listings.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
+                error: (_, __) =>
+                    const Center(child: Text('Unable to load listings.')),
+                data: (docs) {
+                  final filtered = docs.where((doc) {
+                    if (search.isEmpty) return true;
+
+                    final data = doc.data();
+
+                    final text =
+                        '${data['title'] ?? ''} ${data['description'] ?? ''}'
+                            .toLowerCase();
+
+                    return text.contains(search);
+                  }).toList();
+
+                  if (filtered.isEmpty) {
+                    return _emptyState(
+                      context,
+                      Icons.search_off,
+                      'Nothing found',
+                      'Try a different keyword.',
+                    );
+                  }
+
+                  return GridView.builder(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 320,
+                      mainAxisExtent: 345,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 16,
+                    ),
+                    itemCount: filtered.length,
+                    itemBuilder: (_, index) {
+                      return ListingCard(doc: filtered[index]);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   LISTING CARD
+   ============================================================ */
+
+class ListingCard extends ConsumerWidget {
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+
+  const ListingCard({
+    super.key,
+    required this.doc,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final data = doc.data();
+
+    final title = data['title']?.toString() ?? 'Untitled';
+    final category = data['category']?.toString() ?? 'Other';
+    final condition = data['condition']?.toString() ?? 'Used';
+    final price = data['price'] ?? 0;
+    final imageUrl = data['imageUrl']?.toString();
+
+    final wishlist = ref.watch(wishlistProvider);
+    final liked = wishlist.contains(doc.id);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ListingDetailsScreen(
+              doc: doc,
+            ),
+          ),
+        );
+      },
+      child: Card(
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                SizedBox(
+                  height: 190,
+                  width: double.infinity,
+                  child: imageUrl != null && imageUrl.isNotEmpty
+                      ? Image.network(
+                          imageUrl,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              _imagePlaceholder(context),
+                        )
+                      : _imagePlaceholder(context),
+                ),
+
+                Positioned(
+                  top: 12,
+                  right: 12,
+                  child: Material(
+                    color: Theme.of(context)
+                        .colorScheme
+                        .surface
+                        .withOpacity(.92),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      onPressed: () {
+                        final updated = {...wishlist};
+
+                        if (liked) {
+                          updated.remove(doc.id);
+                        } else {
+                          updated.add(doc.id);
+                        }
+
+                        ref.read(wishlistProvider.notifier).state =
+                            updated;
+                      },
+                      icon: Icon(
+                        liked
+                            ? Icons.favorite
+                            : Icons.favorite_border,
+                        color: liked ? Colors.redAccent : null,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                    ),
+                  ),
+
+                  const SizedBox(height: 7),
+
+                  Text(
+                    '₹$price',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+
+                  Row(
+                    children: [
+                      _smallTag(context, category),
+                      const SizedBox(width: 6),
+                      _smallTag(context, condition),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _smallTag(BuildContext context, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 9,
+        vertical: 5,
+      ),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.primary.withOpacity(.09),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   DETAILS
+   ============================================================ */
+
+class ListingDetailsScreen extends StatelessWidget {
+  final QueryDocumentSnapshot<Map<String, dynamic>> doc;
+
+  const ListingDetailsScreen({
+    super.key,
+    required this.doc,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final data = doc.data();
+
+    final title = data['title']?.toString() ?? 'Untitled';
+    final description = data['description']?.toString() ?? '';
+    final category = data['category']?.toString() ?? 'Other';
+    final condition = data['condition']?.toString() ?? 'Used';
+    final sellerName = data['sellerName']?.toString() ?? 'Campus seller';
+    final sellerEmail = data['sellerEmail']?.toString() ?? '';
+    final price = data['price'] ?? 0;
+    final imageUrl = data['imageUrl']?.toString();
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Listing Details'),
+        actions: [
+          Consumer(
+            builder: (context, ref, _) {
+              final liked =
+                  ref.watch(wishlistProvider).contains(doc.id);
+
+              return IconButton(
+                onPressed: () {
+                  final current =
+                      {...ref.read(wishlistProvider)};
+
+                  if (liked) {
+                    current.remove(doc.id);
+                  } else {
+                    current.add(doc.id);
+                  }
+
+                  ref.read(wishlistProvider.notifier).state = current;
+                },
+                icon: Icon(
+                  liked
+                      ? Icons.favorite
+                      : Icons.favorite_border,
+                  color: liked ? Colors.redAccent : null,
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 30),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: SizedBox(
+                height: 300,
+                width: double.infinity,
+                child: imageUrl != null && imageUrl.isNotEmpty
+                    ? Image.network(
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) =>
+                            _imagePlaceholder(context),
+                      )
+                    : _imagePlaceholder(context),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            Text(
+              title,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              '₹$price',
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w900,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            Row(
+              children: [
+                _detailTag(context, category),
+                const SizedBox(width: 8),
+                _detailTag(context, condition),
+              ],
+            ),
+
+            const SizedBox(height: 28),
+
+            Text(
+              'Description',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              description.isEmpty
+                  ? 'No description provided.'
+                  : description,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.6,
+                color:
+                    Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+
+            const SizedBox(height: 28),
+
+            Text(
+              'Seller',
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+            ),
+
+            const SizedBox(height: 12),
+
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 25,
+                      child: Text(
+                        sellerName.isNotEmpty
+                            ? sellerName[0].toUpperCase()
+                            : 'S',
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            sellerName,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                          ),
+                          if (sellerEmail.isNotEmpty)
+                            Text(
+                              sellerEmail,
+                              style: TextStyle(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _detailTag(BuildContext context, String text) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 8,
+      ),
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .primary
+            .withOpacity(.1),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: Theme.of(context).colorScheme.primary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   CREATE / EDIT LISTING
+   ============================================================ */
+
+class CreateListingScreen extends ConsumerStatefulWidget {
+  final QueryDocumentSnapshot<Map<String, dynamic>>? existing;
+
+  const CreateListingScreen({
+    super.key,
+    this.existing,
+  });
+
+  @override
+  ConsumerState<CreateListingScreen> createState() =>
+      _CreateListingScreenState();
+}
+
+class _CreateListingScreenState
+    extends ConsumerState<CreateListingScreen> {
+  final titleController = TextEditingController();
+  final priceController = TextEditingController();
+  final descriptionController = TextEditingController();
+
+  String category = 'Books';
+  String condition = 'Good';
+
+  Uint8List? imageBytes;
+  String? imageName;
+  String? existingImageUrl;
+
+  bool loading = false;
+
+  final categories = [
+    'Books',
+    'Electronics',
+    'Furniture',
+    'Notes',
+    'Other',
+  ];
+
+  final conditions = [
+    'New',
+    'Like New',
+    'Good',
+    'Used',
+  ];
+
+  bool get editing => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+
+    final data = widget.existing?.data();
+
+    if (data != null) {
+      titleController.text = data['title']?.toString() ?? '';
+      priceController.text = data['price']?.toString() ?? '';
+      descriptionController.text =
+          data['description']?.toString() ?? '';
+
+      category = data['category']?.toString() ?? 'Books';
+      condition = data['condition']?.toString() ?? 'Good';
+
+      existingImageUrl = data['imageUrl']?.toString();
+    }
+  }
+
+  @override
+  void dispose() {
+    titleController.dispose();
+    priceController.dispose();
+    descriptionController.dispose();
+    super.dispose();
+  }
+
+  Future<void> pickImage() async {
+    final picker = ImagePicker();
+
+    final file = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
+    );
+
+    if (file == null) return;
+
+    final bytes = await file.readAsBytes();
+
+    setState(() {
+      imageBytes = bytes;
+      imageName = file.name;
+    });
+  }
+
+  Future<String?> uploadImage() async {
+    if (imageBytes == null) {
+      return existingImageUrl;
+    }
+
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+
+    final ref = FirebaseStorage.instance
+        .ref()
+        .child('listings')
+        .child(uid)
+        .child(
+          '${DateTime.now().millisecondsSinceEpoch}_$imageName',
+        );
+
+    await ref.putData(
+      imageBytes!,
+      SettableMetadata(contentType: 'image/jpeg'),
+    );
+
+    return ref.getDownloadURL();
+  }
+
+  Future<void> saveListing() async {
+    if (titleController.text.trim().isEmpty ||
+        priceController.text.trim().isEmpty) {
+      _message('Please enter a title and price.');
+      return;
+    }
+
+    setState(() => loading = true);
+
+    try {
+      final user = FirebaseAuth.instance.currentUser!;
+
+      final imageUrl = await uploadImage();
+
+      final data = <String, dynamic>{
+        'title': titleController.text.trim(),
+        'price': double.tryParse(priceController.text.trim()) ?? 0,
+        'description': descriptionController.text.trim(),
+        'category': category,
+        'condition': condition,
+        'sellerId': user.uid,
+        'sellerName': user.displayName ?? 'Campus Seller',
+        'sellerEmail': user.email ?? '',
+        'imageUrl': imageUrl,
+        'updatedAt': FieldValue.serverTimestamp(),
+      };
+
+      if (editing) {
+        await FirebaseFirestore.instance
+            .collection('listings')
+            .doc(widget.existing!.id)
+            .update(data);
+      } else {
+        data['createdAt'] = FieldValue.serverTimestamp();
+
+        await FirebaseFirestore.instance
+            .collection('listings')
+            .add(data);
+      }
+
+      if (mounted) {
+        _message(
+          editing
+              ? 'Listing updated successfully!'
+              : 'Listing published successfully!',
+        );
+
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      _message('Could not save listing. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+      }
+    }
+  }
+
+  void _message(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(text)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          editing ? 'Edit Listing' : 'Sell an Item',
+        ),
+      ),
+
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 30),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 700),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _imagePicker(context),
+
+                const SizedBox(height: 24),
+
+                AppTextField(
+                  controller: titleController,
+                  label: 'What are you selling?',
+                  hint: 'e.g. Engineering Mathematics Book',
+                  icon: Icons.shopping_bag_outlined,
+                ),
+
+                const SizedBox(height: 16),
+
+                AppTextField(
+                  controller: priceController,
+                  label: 'Price',
+                  hint: 'Enter price',
+                  icon: Icons.currency_rupee,
+                  keyboardType: TextInputType.number,
+                ),
+
+                const SizedBox(height: 16),
+
+                _dropdown(
+                  context,
+                  label: 'Category',
+                  value: category,
+                  items: categories,
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => category = value);
+                    }
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                _dropdown(
+                  context,
+                  label: 'Condition',
+                  value: condition,
+                  items: conditions,
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => condition = value);
+                    }
+                  },
+                ),
+
+                const SizedBox(height: 16),
+
+                TextField(
+                  controller: descriptionController,
+                  maxLines: 5,
+                  decoration: const InputDecoration(
+                    labelText: 'Description',
+                    hintText:
+                        'Tell buyers something useful about your item...',
+                    alignLabelWithHint: true,
+                  ),
+                ),
+
+                const SizedBox(height: 26),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: FilledButton.icon(
+                    onPressed: loading ? null : saveListing,
+                    icon: loading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(Icons.publish_rounded),
+                    label: Text(
+                      loading
+                          ? 'Publishing...'
+                          : editing
+                              ? 'Update Listing'
+                              : 'Publish Listing',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _imagePicker(BuildContext context) {
+    return InkWell(
+      onTap: pickImage,
+      borderRadius: BorderRadius.circular(24),
+      child: Container(
+        height: 230,
+        width: double.infinity,
+        decoration: BoxDecoration(
+          color: Theme.of(context)
+              .colorScheme
+              .primary
+              .withOpacity(.06),
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: Theme.of(context)
+                .colorScheme
+                .primary
+                .withOpacity(.18),
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: imageBytes != null
+            ? Image.memory(
+                imageBytes!,
+                fit: BoxFit.cover,
+              )
+            : existingImageUrl != null &&
+                    existingImageUrl!.isNotEmpty
+                ? Image.network(
+                    existingImageUrl!,
+                    fit: BoxFit.cover,
+                  )
+                : Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.add_photo_alternate_outlined,
+                        size: 52,
+                        color:
+                            Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Add Photos',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        'Tap to choose an image',
+                        style: TextStyle(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+      ),
+    );
+  }
+
+  Widget _dropdown(
+    BuildContext context, {
+    required String label,
+    required String value,
+    required List<String> items,
+    required ValueChanged<String?> onChanged,
+  }) {
+    return DropdownButtonFormField<String>(
+      initialValue: value,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: const Icon(Icons.category_outlined),
+      ),
+      items: items
+          .map(
+            (item) => DropdownMenuItem(
+              value: item,
+              child: Text(item),
+            ),
+          )
+          .toList(),
+      onChanged: onChanged,
+    );
+  }
+}
+
+/* ============================================================
+   WISHLIST
+   ============================================================ */
+
+class WishlistScreen extends ConsumerWidget {
+  const WishlistScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final wishlist = ref.watch(wishlistProvider);
+    final listings = ref.watch(listingsProvider);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Wishlist',
+              style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Items you want to keep an eye on.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 22),
+
+            Expanded(
+              child: listings.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
+                error: (_, __) =>
+                    const Center(child: Text('Unable to load wishlist.')),
+                data: (docs) {
+                  final saved = docs
+                      .where((doc) => wishlist.contains(doc.id))
+                      .toList();
+
+                  if (saved.isEmpty) {
+                    return _emptyState(
+                      context,
+                      Icons.favorite_border_rounded,
+                      'Your wishlist is empty',
+                      'Tap the heart on an item to save it.',
+                    );
+                  }
+
+                  return GridView.builder(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 320,
+                      mainAxisExtent: 345,
+                      crossAxisSpacing: 16,
+                      mainAxisSpacing: 16,
+                    ),
+                    itemCount: saved.length,
+                    itemBuilder: (_, index) {
+                      return ListingCard(doc: saved[index]);
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   PROFILE
+   ============================================================ */
+
+class ProfileScreen extends ConsumerWidget {
+  const ProfileScreen({super.key});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final user = FirebaseAuth.instance.currentUser;
+    final theme = ref.watch(themeProvider);
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.fromLTRB(20, 25, 20, 30),
+        child: Column(
+          children: [
+            CircleAvatar(
+              radius: 42,
+              backgroundColor:
+                  Theme.of(context).colorScheme.primaryContainer,
+              child: Text(
+                (user?.displayName?.isNotEmpty ?? false)
+                    ? user!.displayName![0].toUpperCase()
+                    : 'U',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w900,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
+            Text(
+              user?.displayName ?? 'Campus User',
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+            ),
+
+            const SizedBox(height: 4),
+
+            Text(
+              user?.email ?? '',
+              style: TextStyle(
+                color:
+                    Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+
+            const SizedBox(height: 30),
+
+            _profileTile(
+              context,
+              Icons.inventory_2_outlined,
+              'My Listings',
+              'Manage your items',
+              () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const MyListingsScreen(),
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 12),
+
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(18),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.palette_outlined,
+                          color: Theme.of(context)
+                              .colorScheme
+                              .primary,
+                        ),
+                        const SizedBox(width: 14),
+                        const Expanded(
+                          child: Text(
+                            'Appearance',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    SegmentedButton<ThemeMode>(
+                      segments: const [
+                        ButtonSegment(
+                          value: ThemeMode.system,
+                          icon: Icon(Icons.settings_suggest_outlined),
+                          label: Text('System'),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.light,
+                          icon: Icon(Icons.light_mode_outlined),
+                          label: Text('Light'),
+                        ),
+                        ButtonSegment(
+                          value: ThemeMode.dark,
+                          icon: Icon(Icons.dark_mode_outlined),
+                          label: Text('Dark'),
+                        ),
+                      ],
+                      selected: {theme},
+                      onSelectionChanged: (selection) {
+                        ref.read(themeProvider.notifier).state =
+                            selection.first;
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 12),
+
+            _profileTile(
+              context,
+              Icons.logout_rounded,
+              'Log out',
+              'Sign out of your account',
+              () async {
+                await FirebaseAuth.instance.signOut();
+              },
+              destructive: true,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _profileTile(
+    BuildContext context,
+    IconData icon,
+    String title,
+    String subtitle,
+    VoidCallback onTap, {
+    bool destructive = false,
+  }) {
+    return Card(
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 7,
+        ),
+        leading: CircleAvatar(
+          backgroundColor: destructive
+              ? Colors.red.withOpacity(.1)
+              : Theme.of(context)
+                  .colorScheme
+                  .primary
+                  .withOpacity(.1),
+          child: Icon(
+            icon,
+            color: destructive
+                ? Colors.redAccent
+                : Theme.of(context).colorScheme.primary,
+          ),
+        ),
+        title: Text(
+          title,
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   MY LISTINGS
+   ============================================================ */
+
+class MyListingsScreen extends StatelessWidget {
+  const MyListingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('My Listings'),
+      ),
+      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('listings')
+            .where('sellerId', isEqualTo: uid)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(),
+            );
+          }
+
+          if (snapshot.hasError) {
+            return _emptyState(
+              context,
+              Icons.error_outline,
+              'Could not load listings',
+              'Please try again.',
+            );
+          }
+
+          final docs = snapshot.data?.docs ?? [];
+
+          if (docs.isEmpty) {
+            return _emptyState(
+              context,
+              Icons.inventory_2_outlined,
+              'No listings yet',
+              'Create your first campus listing.',
+            );
+          }
+
+          return ListView.separated(
+            padding: const EdgeInsets.all(20),
+            itemCount: docs.length,
+            separatorBuilder: (_, __) =>
+                const SizedBox(height: 12),
+            itemBuilder: (context, index) {
+              final doc = docs[index];
+              final data = doc.data();
+
+              return Card(
+                child: ListTile(
+                  contentPadding: const EdgeInsets.all(12),
+                  leading: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: 70,
+                      height: 70,
+                      child: data['imageUrl'] != null &&
+                              data['imageUrl'].toString().isNotEmpty
+                          ? Image.network(
+                              data['imageUrl'],
+                              fit: BoxFit.cover,
+                            )
+                          : _imagePlaceholder(context),
+                    ),
+                  ),
+                  title: Text(
+                    data['title']?.toString() ?? 'Untitled',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  subtitle: Text(
+                    '₹${data['price'] ?? 0}',
+                    style: TextStyle(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .primary,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  trailing: PopupMenuButton<String>(
+                    onSelected: (value) {
+                      if (value == 'edit') {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => CreateListingScreen(
+                              existing: doc,
+                            ),
+                          ),
+                        );
+                      }
+
+                      if (value == 'delete') {
+                        _deleteListing(context, doc);
+                      }
+                    },
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: Text('Edit'),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Delete'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Future<void> _deleteListing(
+    BuildContext context,
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Delete listing?'),
+          content: const Text(
+            'This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    await FirebaseFirestore.instance
+        .collection('listings')
+        .doc(doc.id)
+        .delete();
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Listing deleted.'),
+        ),
+      );
+    }
+  }
+}
+
+/* ============================================================
+   REUSABLE WIDGETS
+   ============================================================ */
+
+class AppTextField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final IconData icon;
+  final bool obscureText;
+  final Widget? suffix;
+  final TextInputType? keyboardType;
+
+  const AppTextField({
+    super.key,
+    required this.controller,
+    required this.label,
+    required this.hint,
+    required this.icon,
+    this.obscureText = false,
+    this.suffix,
+    this.keyboardType,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      obscureText: obscureText,
+      keyboardType: keyboardType,
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        prefixIcon: Icon(icon),
+        suffixIcon: suffix,
+      ),
+    );
+  }
+}
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+
+Widget _logo({double size = 60}) {
+  return Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      gradient: const LinearGradient(
+        colors: [
+          Color(0xFF5B5FEF),
+          Color(0xFF8B7CFF),
+        ],
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
+      ),
+      borderRadius: BorderRadius.circular(size * .28),
+    ),
+    child: Icon(
+      Icons.storefront_rounded,
+      size: size * .48,
+      color: Colors.white,
+    ),
+  );
+}
+
+Widget _imagePlaceholder(BuildContext context) {
+  return Container(
+    color: Theme.of(context)
+        .colorScheme
+        .primary
+        .withOpacity(.07),
+    child: Center(
+      child: Icon(
+        Icons.image_outlined,
+        size: 48,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    ),
+  );
+}
+
+Widget _emptyState(
+  BuildContext context,
+  IconData icon,
+  String title,
+  String subtitle,
+) {
+  return Center(
+    child: Padding(
+      padding: const EdgeInsets.all(30),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Theme.of(context)
+                  .colorScheme
+                  .primary
+                  .withOpacity(.08),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 42,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 18),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color:
+                  Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
